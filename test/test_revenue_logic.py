@@ -15,7 +15,6 @@ def spark():
         .getOrCreate()
 
 def test_calculate_net_revenue(spark):
-    # 1. Arrange: Define dummy input and the expected outcome
     source_data = [
         ("order_1", 100.0, 10.0),
         ("order_2", 50.5, 5.05)
@@ -28,11 +27,8 @@ def test_calculate_net_revenue(spark):
     ]
     expected_df = spark.createDataFrame(expected_data, ["order_id", "gross_revenue", "tax_amount", "net_revenue"])
 
-    # 2. Act: Call the pure transformation function
     actual_df = calculate_net_revenue(source_df)
 
-    # 3. Assert: Use chispa for a deep comparison
-    # If this fails, chispa will show exactly which row/column mismatched.
     assert_df_equality(
         actual_df, 
         expected_df, 
