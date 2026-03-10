@@ -1,7 +1,7 @@
 [project]
 name = "sdp-unit-tests"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analysis on Unit Testing Spark Declarative Pipelines in the Databricks Lakehouse"
 requires-python = ">=3.12"
 dependencies = [
     "chispa>=0.11.1",
