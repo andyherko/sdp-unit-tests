@@ -9,10 +9,10 @@ def spark():
     Fixture to initialize a local SparkSession.
     Enables 'Shift-Left' testing on a local machine or CI agent.
     """
-    return SparkSession.builder \
-        .master("local[*]") \
-        .appName("SDP-Unit-Testing") \
-        .getOrCreate()
+    return (SparkSession.builder
+        .master("local[*]")
+        .appName("SDP-Unit-Testing")
+        .getOrCreate())
 
 def test_calculate_net_revenue(spark):
     source_data = [
@@ -29,9 +29,16 @@ def test_calculate_net_revenue(spark):
 
     actual_df = calculate_net_revenue(source_df)
 
+    """
+    maybe for a large dataset to improve readability it is worth adding chispa as dependency, 
+    otherwise default below is sufficient.
+    
+    from pyspark.testing import assertDataFrameEqual
+    assertDataFrameEqual(actual_df, expected_df)
+    """
     assert_df_equality(
-        actual_df, 
-        expected_df, 
-        ignore_row_order=True, 
+        actual_df,
+        expected_df,
+        ignore_row_order=True,
         ignore_nullable=True
     )
