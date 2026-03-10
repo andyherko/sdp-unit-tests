@@ -122,6 +122,39 @@ A unique feature of SDP and DLT is the ability to enforce data quality through "
 
 **The Advanced Quarantine Pattern** A sophisticated testing pattern involves using two separate flows to implement a "quarantine" system. One flow uses a DROP policy to keep the main table clean, while a second, parallel flow uses a filter to capture only the rejected records and write them to a dedicated "quarantine" table. This pattern allows data engineers to automate the detection of bad data while providing a structured path for investigation and remediation without interrupting the primary data flow.
 
+```
+# FLOW ONE: The "Clean" Production Table
+# This flow uses the 'DROP' policy to ensure only valid data proceeds.
+# Records failing ANY of these checks are discarded from this specific table.
+@dp.table(
+    name="user_gold_sdp",
+    comment="Clean gold user data with invalid records dropped."
+)
+@dp.expect_all_or_drop(get_rules('user_gold_sdp'))
+def user_gold_sdp():
+    return spark.readStream("user_silver_sdp")
+
+
+# FLOW TWO: The Quarantine Table
+# This parallel flow captures rejected records for remediation.
+@dp.table(
+    name="user_gold_quarantine",
+    comment="Quarantined records failing gold expectations."
+)
+def user_gold_quarantine():
+    # Construct a filter that represents the failure of any expectation [1]
+    # Logic: Capture records where NOT (All Conditions are Met)
+    quarantine_filter = "NOT (age IS NOT NULL AND annual_income IS NOT NULL AND spending_core IS NOT NULL)"
+
+    return spark.read_stream("user_silver_sdp") \
+        .filter(quarantine_filter) \
+        .withColumn("quarantine_reason", expr("CASE "
+                                              "WHEN age IS NULL THEN 'Missing Age' "
+                                              "WHEN annual_income IS NULL THEN 'Missing Income' "
+                                              "WHEN spending_core IS NULL THEN 'Missing Score' "
+                                              "ELSE 'Multiple Failures' END"))
+```
+
 #### Approach Three: Metadata-Driven Testing and Configuration Validation
 
 As data platforms scale, metadata-driven frameworks address maintenance burdens by generating SDP pipelines dynamically from JSON or YAML configuration files. In this paradigm, the object of unit testing shifts from the code itself to the metadata that drives it.
