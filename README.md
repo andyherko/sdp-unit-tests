@@ -187,7 +187,8 @@ Based on an analysis of developer velocity, operational risk, and compute econom
 
 #### Implementing the Multi-Layered Strategy: A Technical Roadmap
 
-**Phase 1: Standardizing the Project Structure** A recommended structure separates logic, configuration, and tests:
+**Phase 1: Standardizing the Project Structure** 
+A recommended structure separates logic, configuration, and tests:
 
 - `src/transformations/`: Pure Python modules with transformation functions.
 - `src/pipelines/`: Pipeline definition files (Python or SQL).
@@ -196,7 +197,8 @@ Based on an analysis of developer velocity, operational risk, and compute econom
 - `databricks.yml`: Asset Bundle configuration file.
 - `spark-pipeline.yml`: SDP-specific specification file.
 
-**Phase 2: Automating CI/CD Guardrails** The CI/CD pipeline should execute tests in order, stopping at the first failure:
+**Phase 2: Automating CI/CD Guardrails** 
+The CI/CD pipeline should execute tests in order, stopping at the first failure:
 
 1. **Static Analysis:** Run yamllint on configuration files and pylint on transformation code.
 2. **Logic Testing:** Execute pytest using a local Spark session.
@@ -216,7 +218,3 @@ Based on an analysis of developer velocity, operational risk, and compute econom
 |**Out-of-Order**|Verify newer events override older ones based on key.|Value matches the latest timestamp.|
 |**SCD Type 2**|Verify historical records are updated with end-dates.|end_date matches next version's start_date.|
 |**Type Widening**|Verify schema evolution does not crash.|Schema matches the broader type.|
-
-#### Conclusion
-
-The adoption of Spark Declarative Pipelines allows teams to focus on the "what"—the logic and quality of their data. However, this abstraction makes a rigorous, multi-layered testing framework essential. The "Shift-Left" hybrid framework provides the optimal balance between developer speed and system reliability, transforming the data pipeline into a robust, self-healing system that continuously validates its own correctness.
