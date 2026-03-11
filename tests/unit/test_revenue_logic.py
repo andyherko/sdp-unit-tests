@@ -31,7 +31,7 @@ def test_calculate_net_revenue(spark):
 
     """
     maybe for a large dataset to improve readability it is worth adding chispa as dependency, 
-    otherwise default below is sufficient.
+    otherwise pyspark's assertDataFrameEqual is sufficient.
     
     from pyspark.testing import assertDataFrameEqual
     assertDataFrameEqual(actual_df, expected_df)

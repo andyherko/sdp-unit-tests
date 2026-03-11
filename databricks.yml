@@ -1,0 +1,30 @@
+bundle:
+  name: sdp-unit-tests
+
+include:
+  - resources/*.yml
+
+workspace:
+  root_path: /Workspace/Users/herkoa.valtech@gmail.com/sdp-unit-tests
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host:
+    resources:
+      pipelines:
+        sdp_unit_test_pipeline:
+          development: true
+          
+  prod:
+    mode: production
+    workspace:
+      host:
+    resources:
+      pipelines:
+        sdp_unit_test_pipeline:
+          development: false
+          photon: true
+          serverless: true

@@ -1,0 +1,23 @@
+resources:
+  pipelines:
+    pipeline_dbdemos_sdp_unit_test_main_dbdemos_sdp_unit_test:
+      name: dbdemos_sdp_unit_test_main_dbdemos_sdp_unit_test
+      configuration:
+        catalog: main
+        schema: dbdemos_sdp_unit_test
+      libraries:
+        - glob:
+            include: /Workspace/Users/${workspace.current_user.userName}/sdp-unit-tests/sdp_python/**
+      schema: dbdemos_sdp_unit_test
+      continuous: false
+      development: true
+      photon: true
+      edition: ADVANCED
+      channel: CURRENT
+      catalog: main
+      serverless: true
+      event_log:
+        name: dbdemos_sdp_unit_test_event_logs
+        schema: dbdemos_sdp_unit_test
+        catalog: main
+      root_path: /Workspace/Users/${workspace.current_user.userName}/sdp-unit-tests
