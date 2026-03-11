@@ -1,4 +1,3 @@
-# Unit Testing Spark Declarative Pipelines in the Databricks Lakehouse
 
 This analysis leverages the Databricks `dbdemos` module (specifically `declarative-pipeline-unit-test`) to demonstrate SDP testing best practices. More information can be found at the [Databricks Demos repository](https://github.com/databricks-demos/dbdemos).
 
@@ -20,11 +19,13 @@ The shift-left strategy in data engineering—testing logic as close to the deve
 
 Robust unit testing provides a mechanism to decouple business logic from the expensive infrastructure required to run it. By utilizing local Spark sessions, engineers can validate that a transformation produces the correct output for a given input in seconds rather than minutes. This approach protects the developer’s sanity during complex refactors and builds trust with stakeholders, as they can be assured that data is validated before it ever reaches a consumer-facing dashboard.
 
-#### Approach One: Decoupling Logic through Pure Transformation Functions
+### Approach One: Decoupling Logic through Pure Transformation Functions
 
 The most effective approach for unit testing SDP involves the separation of transformation logic from the framework-specific decorators provided by the `@sdp` or `@dlt` libraries. This methodology relies on the concept of "pure functions"—functions where the output is determined solely by the input parameters and which produce no side effects such as writing to storage or calling external APIs.
 
-**Implementing the Decoupled Pattern** In a standard SDP project, logic often becomes "spaghetti code" embedded directly within decorated functions. To implement a testable architecture, engineers should define all data transformations as individual Python functions that accept and return Spark DataFrames. These functions should reside in a separate Python module, distinct from the pipeline source code. The SDP pipeline then imports these functions and calls them from within the decorated `@sdp.table` or `@sdp.materialized_view` functions.
+**Implementing the Decoupled Pattern** 
+
+In a standard SDP project, logic often becomes "spaghetti code" embedded directly within decorated functions. To implement a testable architecture, engineers should define all data transformations as individual Python functions that accept and return Spark DataFrames. These functions should reside in a separate Python module, distinct from the pipeline source code. The SDP pipeline then imports these functions and calls them from within the decorated `@sdp.table` or `@sdp.materialized_view` functions.
 
 This separation allows the transformation logic to be tested independently of the SDP runtime. During a test run, a local SparkSession is initialized, dummy DataFrames are created to simulate source data, and the transformation function is invoked. The results are then compared against an "expected" DataFrame using specialized assertion libraries.
 
@@ -35,7 +36,8 @@ This separation allows the transformation logic to be tested independently of th
 |Unit Test Suite|Validation of transformation modules using pytest.|Local IDE or CI Agent.|
 |Integration Tests|Validation of the execution graph and end-to-end flow.|Databricks Cluster.|
 
-**Leveraging pytest and chispa for Assertions** 
+#### **Leveraging pytest and chispa for Assertions** 
+
 Standard Python assertions are insufficient for comparing Spark DataFrames because DataFrames are distributed objects with complex schemas and row-level nuances. The **chispa** library is a widely adopted third-party helper that provides expressive DataFrame equality assertions. Unlike basic count checks, chispa performs a deep comparison of schemas and row data, outputting a color-coded diff when mismatches occur. This descriptive error messaging allows developers to identify exactly which column or row is causing a failure.
 
 For projects adhering to Spark 3.5 or higher, the built-in `pyspark.testing` module offers a native alternative with `assertDataFrameEqual`. This utility function supports comparing DataFrames for equality while providing options to ignore column order, nullability, or specific data types.
@@ -110,70 +112,43 @@ def test_calculate_net_revenue(spark):
 ```
 
 
-#### Approach Two: Declarative Data Quality Expectations
+### Approach Two: Declarative Data Quality Expectations
 
 A unique feature of SDP and DLT is the ability to enforce data quality through "Expectations"—SQL boolean expressions that are evaluated against every record in real-time as it flows through the pipeline. Expectations represent a declarative form of integration testing that validates the _state_ of the data rather than the _correctness_ of the code. This is crucial because even perfectly written code can fail when confronted with unexpected upstream schema changes or invalid data inputs from external vendors.
 
-**Violation Policies and Error Handling** SDP provides three native policies for handling records that violate a defined expectation:
+#### **Violation Policies and Error Handling** 
+SDP provides three native policies for handling records that violate a defined expectation:
 
 1. **Warn (Default):** The violation is recorded in the pipeline's event log and metrics, but the record is allowed to proceed to the target table.
 2. **Drop:** Records that fail the check are discarded before they reach the target table. This policy is ideal for filtering out "poison" records.
 3. **Fail:** The entire pipeline update is stopped if a single record fails the check. This is reserved for the most critical data.
 
-**The Advanced Quarantine Pattern** A sophisticated testing pattern involves using two separate flows to implement a "quarantine" system. One flow uses a DROP policy to keep the main table clean, while a second, parallel flow uses a filter to capture only the rejected records and write them to a dedicated "quarantine" table. This pattern allows data engineers to automate the detection of bad data while providing a structured path for investigation and remediation without interrupting the primary data flow.
+#### **The Advanced Quarantine Pattern** 
+A sophisticated testing pattern involves using two separate flows to implement a "quarantine" system. One flow uses a DROP policy to keep the main table clean, while a second, parallel flow uses a filter to capture only the rejected records and write them to a dedicated "quarantine" table. This pattern allows data engineers to automate the detection of bad data while providing a structured path for investigation and remediation without interrupting the primary data flow.
 
-```
-# FLOW ONE: The "Clean" Production Table
-# This flow uses the 'DROP' policy to ensure only valid data proceeds.
-# Records failing ANY of these checks are discarded from this specific table.
-@dp.table(
-    name="user_gold_sdp",
-    comment="Clean gold user data with invalid records dropped."
-)
-@dp.expect_all_or_drop(get_rules('user_gold_sdp'))
-def user_gold_sdp():
-    return spark.readStream("user_silver_sdp")
-
-
-# FLOW TWO: The Quarantine Table
-# This parallel flow captures rejected records for remediation.
-@dp.table(
-    name="user_gold_quarantine",
-    comment="Quarantined records failing gold expectations."
-)
-def user_gold_quarantine():
-    # Construct a filter that represents the failure of any expectation [1]
-    # Logic: Capture records where NOT (All Conditions are Met)
-    quarantine_filter = "NOT (age IS NOT NULL AND annual_income IS NOT NULL AND spending_core IS NOT NULL)"
-
-    return spark.read_stream("user_silver_sdp") \
-        .filter(quarantine_filter) \
-        .withColumn("quarantine_reason", expr("CASE "
-                                              "WHEN age IS NULL THEN 'Missing Age' "
-                                              "WHEN annual_income IS NULL THEN 'Missing Income' "
-                                              "WHEN spending_core IS NULL THEN 'Missing Score' "
-                                              "ELSE 'Multiple Failures' END"))
-```
-
-#### Approach Three: Metadata-Driven Testing and Configuration Validation
+### Approach Three: Metadata-Driven Testing and Configuration Validation
 
 As data platforms scale, metadata-driven frameworks address maintenance burdens by generating SDP pipelines dynamically from JSON or YAML configuration files. In this paradigm, the object of unit testing shifts from the code itself to the metadata that drives it.
 
-**The Role of JSON Schema in Metadata Validation** To prevent production failures caused by syntax errors in configuration files, teams should implement formal schema validation using the **JSON Schema** specification. A JSON Schema defines the required structure, data types, and valid ranges for the metadata. For example, the schema can enforce that every silver transformation has a non-empty `sql_logic` field and that the `quality_threshold` is an integer between 0 and 100.
+**The Role of JSON Schema in Metadata Validation** 
+To prevent production failures caused by syntax errors in configuration files, teams should implement formal schema validation using the **JSON Schema** specification. A JSON Schema defines the required structure, data types, and valid ranges for the metadata. For example, the schema can enforce that every silver transformation has a non-empty `sql_logic` field and that the `quality_threshold` is an integer between 0 and 100.
 
-**Validating the DLT-META Onboarding Process** Testing the "onboarding" step in frameworks like DLT-META involves validating that the process correctly registers the intent of the data engineer. By performing a dry-run of the onboarding job, teams can verify that all source paths are accessible and that the generated SQL transformations are syntactically valid.
+**Validating the DLT-META Onboarding Process** 
+Testing the "onboarding" step in frameworks like DLT-META involves validating that the process correctly registers the intent of the data engineer. By performing a dry-run of the onboarding job, teams can verify that all source paths are accessible and that the generated SQL transformations are syntactically valid.
 
-#### Approach Four: Integrated Remote Testing with Nutter
+### Approach Four: Integrated Remote Testing with Nutter
 
 For scenarios where local Spark sessions are insufficient—such as testing code that relies on Databricks-specific environment variables or Unity Catalog permissions—remote testing via the **Nutter** framework is the standard approach. Nutter allows engineers to write test cases within Databricks notebooks that are executed on a live cluster.
 
-**Advantages of the Nutter Fixture** Nutter provides a `NutterFixture` class that structures tests into discrete phases: `before_`, `run_`, and `assertion_`. This structured approach ensures that the environment is reset before each test run and that results are captured in a format compatible with CI/CD reporting tools. While powerful, Nutter is generally slower than local testing and should be used strategically for validating the "last mile" of integration.
+**Advantages of the Nutter Fixture** 
+Nutter provides a `NutterFixture` class that structures tests into discrete phases: `before_`, `run_`, and `assertion_`. This structured approach ensures that the environment is reset before each test run and that results are captured in a format compatible with CI/CD reporting tools. While powerful, Nutter is generally slower than local testing and should be used strategically for validating the "last mile" of integration.
 
-#### Approach Five: The spark-pipelines CLI and Dry-Run Validation
+### Approach Five: The spark-pipelines CLI and Dry-Run Validation
 
 The **spark-pipelines CLI** provides a dedicated toolset for managing declarative pipelines. One of its most critical features is the `dry-run` command, which performs a holistic pre-validation of the entire pipeline project without writing data.
 
-**Catching Graph and Analysis Errors** A dry-run analyzes the code for several categories of errors:
+**Catching Graph and Analysis Errors** 
+A dry-run analyzes the code for several categories of errors:
 
 - **Syntax and Analysis Errors:** Detects invalid SQL/Python code and references to non-existent columns.
 - **Graph Validation Errors:** Identifies cyclic dependencies that would cause the pipeline to hang.
@@ -181,17 +156,17 @@ The **spark-pipelines CLI** provides a dedicated toolset for managing declarativ
 
 Integrating this into the pull request process provides an automated gate that prevents broken execution graphs from being merged.
 
-#### Approach Six: Lifecycle Testing with Databricks Asset Bundles (DABs)
+### Approach Six: Lifecycle Testing with Databricks Asset Bundles (DABs)
 
 **Databricks Asset Bundles (DABs)** provide the overarching framework for managing pipelines as Infrastructure as Code (IaC). DABs enable teams to define clusters, jobs, and pipelines in YAML alongside their source code, ensuring all project components are versioned and deployed together.
 
-**Environment Isolation and Target-Based Testing** The "targets" feature in DABs allows engineers to parameterize environment settings for dev, staging, and prod. For instance, a dev target can use a smaller cluster and a sandbox schema. The `databricks bundle validate` command checks the bundle's YAML for correctness before deployment, ensuring infrastructure changes are validated before they affect production.
+**Environment Isolation and Target-Based Testing** The "targets" feature in DABs allows engineers to parameterize environment settings for dev, staging, and prod. For instance, a dev target can use a smaller cluster and a sandbox schema. The Databricks bundle validate` command checks the bundle's YAML for correctness before deployment, ensuring infrastructure changes are validated before they affect production.
 
-#### Approach Seven: Property-Based Testing with Hypothesis
+### Approach Seven: Property-Based Testing with Hypothesis
 
 Property-based testing, facilitated by the **Hypothesis** library and the **sparkle-hypothesis** extension, addresses "long tail" edge cases by generating random test data based on a defined strategy. Instead of asserting a specific fixed input/output, it asserts a general property (e.g., "the sum of tax and subtotal must always equal the total"). Hypothesis then generates hundreds of variations to attempt to "break" this assertion and "shrinks" failing inputs to the smallest possible example.
 
-#### Comparative Analysis of SDP Testing Methodologies
+### Comparative Analysis of SDP Testing Methodologies
 
 |Approach|Primary Goal|Execution Speed|Cost Impact|Tooling|
 |:--|:--|:--|:--|:--|
