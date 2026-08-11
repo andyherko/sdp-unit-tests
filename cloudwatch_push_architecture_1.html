@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SDP integration with AWS CloudWatch (Push)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #EDEAE0;
+    font-family: 'DM Sans', sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 32px 24px;
+  }
+
+  .slide {
+    background: #EDEAE0;
+    width: 1280px;
+    min-height: 720px;
+    position: relative;
+    overflow: hidden;
+    padding: 52px 64px 48px;
+  }
+
+  .slide::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .slide-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: #F06449;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .slide-heading {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 500;
+    color: #1a1a18;
+    margin-bottom: 36px;
+  }
+
+  .node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(0,0,0,0.1);
+    background: #F5F2E8;
+    position: relative;
+    transition: box-shadow 0.2s, transform 0.2s;
+    cursor: default;
+  }
+  .node:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .node.databricks { border-color: rgba(255,54,33,0.35); background: #FDF3F0; }
+  .node.aws        { border-color: rgba(240,100,73,0.35); background: #FDF6F0; }
+  .node.alert      { border-color: rgba(190,40,40,0.35);  background: #FDF0F0; }
+  .node.logs       { border-color: rgba(40,100,200,0.3);  background: #F0F4FD; }
+  .node.metrics    { border-color: rgba(29,158,117,0.35); background: #F0FAF6; }
+
+  .node-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .node-icon svg { width: 36px; height: 36px; }
+  .node-label { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: #1a1a18; text-align: center; line-height: 1.3; }
+  .node-sub   { font-family: 'Space Mono', monospace; font-size: 9.5px; color: #6b6b65; text-align: center; line-height: 1.4; }
+
+  .step-badge {
+    position: absolute; top: -9px; left: -9px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #F06449; color: #fff;
+    font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; z-index: 2;
+  }
+
+  .region-aws {
+    position: absolute;
+    top: -24px; right: 0;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #c4410c;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border: 1px solid rgba(240,100,73,0.3);
+    border-radius: 4px;
+    background: rgba(240,100,73,0.06);
+  }
+  .region-db {
+    position: absolute;
+    top: -24px; left: 0;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #1D9E75;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border: 1px solid rgba(29,158,117,0.3);
+    border-radius: 4px;
+    background: rgba(29,158,117,0.06);
+  }
+
+  .connector { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 3px; }
+
+  .goals-row { display: flex; gap: 16px; margin-top: 28px; }
+  .goal-pill {
+    flex: 1; display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: 8px;
+    background: rgba(240,100,73,0.08); border: 1px solid rgba(240,100,73,0.25);
+  }
+  .goal-dot { width: 8px; height: 8px; border-radius: 50%; background: #F06449; flex-shrink: 0; }
+  .goal-text { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: #1a1a18; }
+  .goal-sub  { font-family: 'Space Mono', monospace; font-size: 9px; color: #7a7a74; margin-top: 1px; }
+
+  .legend { position: absolute; bottom: 20px; right: 64px; display: flex; gap: 20px; align-items: center; }
+  .legend span { font-family: 'Space Mono', monospace; font-size: 9px; color: #6b6b65; }
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="slide-title">Architecture overview</div>
+  <div class="slide-heading">SDP integration with AWS CloudWatch <span style="color:#F06449;">(Push)</span></div>
+
+  <!-- Main flow -->
+  <div style="position:relative; padding-top:28px; margin-bottom:20px;">
+    <span class="region-db">Databricks cluster (EC2)</span>
+    <span class="region-aws">AWS</span>
+
+    <div style="display:grid; grid-template-columns: 1fr 52px 1fr 52px 1fr 52px 1fr; align-items:center; gap:0;">
+
+      <!-- 1. Databricks Cluster -->
+      <div class="node databricks">
+        <div class="step-badge">1</div>
+        <div class="node-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="80" rx="12" fill="#FF3621"/>
+            <path d="M40 14L14 29v14l26 13 26-13V29L40 14z" fill="white" opacity="0.95"/>
+            <path d="M14 43v8l26 13 26-13v-8L40 56 14 43z" fill="white" opacity="0.5"/>
+            <path d="M14 51v8l26 13 26-13v-8L40 64 14 51z" fill="white" opacity="0.25"/>
+          </svg>
+        </div>
+        <div class="node-label">Databricks<br/>Cluster</div>
+        <div class="node-sub">IAM role<br/>CloudWatchAgentPolicy</div>
+      </div>
+
+      <!-- arrow 1→2 -->
+      <div class="connector">
+        <svg viewBox="0 0 52 24" width="52" height="24">
+          <line x1="4" y1="12" x2="44" y2="12" stroke="#F06449" stroke-width="1.5"/>
+          <polygon points="44,8 52,12 44,16" fill="#F06449"/>
+        </svg>
+        <div style="font-family:'Space Mono',monospace;font-size:8px;color:#c4410c;">init script</div>
+      </div>
+
+      <!-- 2. CW Agent -->
+      <div class="node aws">
+        <div class="step-badge">2</div>
+        <div class="node-icon">
+          <!-- CloudWatch agent / gear icon -->
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="80" rx="12" fill="#FF9900"/>
+            <circle cx="40" cy="40" r="14" fill="none" stroke="white" stroke-width="3"/>
+            <circle cx="40" cy="40" r="5" fill="white"/>
+            <rect x="37" y="14" width="6" height="10" rx="3" fill="white"/>
+            <rect x="37" y="56" width="6" height="10" rx="3" fill="white"/>
+            <rect x="14" y="37" width="10" height="6" rx="3" fill="white"/>
+            <rect x="56" y="37" width="10" height="6" rx="3" fill="white"/>
+          </svg>
+        </div>
+        <div class="node-label">CloudWatch<br/>Agent</div>
+        <div class="node-sub">Runs on each node<br/>collects metrics & logs</div>
+      </div>
+
+      <!-- arrow 2→3 PUSH -->
+      <div class="connector">
+        <svg viewBox="0 0 52 24" width="52" height="24">
+          <line x1="4" y1="12" x2="44" y2="12" stroke="#F06449" stroke-width="2" stroke-dasharray="none"/>
+          <polygon points="44,8 52,12 44,16" fill="#F06449"/>
+        </svg>
+        <div style="font-family:'Space Mono',monospace;font-size:8px;color:#c4410c;font-weight:700;">PUSH</div>
+      </div>
+
+      <!-- 3. CW Metrics -->
+      <div class="node metrics">
+        <div class="step-badge" style="background:#1D9E75;">3</div>
+        <div class="node-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="80" rx="12" fill="#4A90D9"/>
+            <path d="M14 50 L26 36 L34 44 L44 28 L54 38 L66 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="26" cy="36" r="3" fill="white"/>
+            <circle cx="34" cy="44" r="3" fill="white"/>
+            <circle cx="44" cy="28" r="3" fill="white"/>
+            <circle cx="54" cy="38" r="3" fill="white"/>
+          </svg>
+        </div>
+        <div class="node-label">CloudWatch<br/>Metrics</div>
+        <div class="node-sub">CPU, memory, disk<br/>Spark metrics</div>
+      </div>
+
+      <!-- arrow 3→4 -->
+      <div class="connector">
+        <svg viewBox="0 0 52 24" width="52" height="24">
+          <line x1="4" y1="12" x2="44" y2="12" stroke="#185FA5" stroke-width="1.5"/>
+          <polygon points="44,8 52,12 44,16" fill="#185FA5"/>
+        </svg>
+        <div style="font-family:'Space Mono',monospace;font-size:8px;color:#185FA5;">feeds</div>
+      </div>
+
+      <!-- 4. CW Logs -->
+      <div class="node logs">
+        <div class="step-badge" style="background:#185FA5;">4</div>
+        <div class="node-icon">
+          <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="80" height="80" rx="12" fill="#4A90D9"/>
+            <rect x="16" y="20" width="48" height="8" rx="3" fill="white" opacity="0.9"/>
+            <rect x="16" y="32" width="36" height="8" rx="3" fill="white" opacity="0.7"/>
+            <rect x="16" y="44" width="44" height="8" rx="3" fill="white" opacity="0.5"/>
+            <rect x="16" y="56" width="28" height="8" rx="3" fill="white" opacity="0.35"/>
+          </svg>
+        </div>
+        <div class="node-label">CloudWatch<br/>Logs</div>
+        <div class="node-sub">Driver & executor logs<br/>log4j structured logs</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Output row: Dashboards + Alarms -->
+  <div style="display:grid; grid-template-columns: 1fr 52px 1fr; max-width:480px; margin-left: calc(2*(100%/7) + 2*52px); align-items:start;">
+
+    <!-- down arrow to dashboards -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <svg viewBox="0 0 24 32" width="24" height="32">
+        <line x1="12" y1="2" x2="12" y2="24" stroke="#1D9E75" stroke-width="1.5"/>
+        <polygon points="8,24 12,32 16,24" fill="#1D9E75"/>
+      </svg>
+      <div style="font-family:'Space Mono',monospace;font-size:8px;color:#1D9E75;">visualise</div>
+    </div>
+
+    <div></div>
+
+    <!-- down arrow to alarms -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <svg viewBox="0 0 24 32" width="24" height="32">
+        <line x1="12" y1="2" x2="12" y2="24" stroke="#be2828" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <polygon points="8,24 12,32 16,24" fill="#be2828"/>
+      </svg>
+      <div style="font-family:'Space Mono',monospace;font-size:8px;color:#be2828;">alarm</div>
+    </div>
+
+  </div>
+
+  <!-- Output nodes -->
+  <div style="display:grid; grid-template-columns: 1fr 52px 1fr; max-width:480px; margin-left: calc(2*(100%/7) + 2*52px); align-items:start;">
+
+    <!-- 5. Dashboards -->
+    <div class="node metrics">
+      <div class="step-badge" style="background:#1D9E75;">5</div>
+      <div class="node-icon">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="80" height="80" rx="12" fill="#1D9E75"/>
+          <rect x="14" y="14" width="24" height="24" rx="4" fill="white" opacity="0.9"/>
+          <rect x="42" y="14" width="24" height="10" rx="4" fill="white" opacity="0.65"/>
+          <rect x="42" y="28" width="24" height="10" rx="4" fill="white" opacity="0.45"/>
+          <rect x="14" y="42" width="52" height="10" rx="4" fill="white" opacity="0.7"/>
+          <rect x="14" y="56" width="36" height="10" rx="4" fill="white" opacity="0.5"/>
+        </svg>
+      </div>
+      <div class="node-label">CW Dashboards</div>
+      <div class="node-sub">SLO / SLI metrics<br/>golden signals</div>
+    </div>
+
+    <div></div>
+
+    <!-- 6. Alarms → SNS -->
+    <div class="node alert">
+      <div class="step-badge" style="background:#be2828;">6</div>
+      <div class="node-icon">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="80" height="80" rx="12" fill="#E7157B"/>
+          <circle cx="40" cy="32" r="14" fill="none" stroke="white" stroke-width="3"/>
+          <path d="M28 32h24M40 20v4M40 40v4" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M26 46l-8 12h44l-8-12" fill="white" opacity="0.9"/>
+          <rect x="36" y="58" width="8" height="6" rx="4" fill="white"/>
+        </svg>
+      </div>
+      <div class="node-label">CW Alarms + SNS</div>
+      <div class="node-sub">Email alert on<br/>threshold breach</div>
+    </div>
+
+  </div>
+
+  <!-- Goals -->
+  <div class="goals-row">
+    <div class="goal-pill">
+      <div class="goal-dot"></div>
+      <div>
+        <div class="goal-text">Health check</div>
+        <div class="goal-sub">System + Spark metrics live on cluster</div>
+      </div>
+    </div>
+    <div class="goal-pill">
+      <div class="goal-dot"></div>
+      <div>
+        <div class="goal-text">Real-time alerting</div>
+        <div class="goal-sub">CW Alarms → SNS on threshold breach</div>
+      </div>
+    </div>
+    <div class="goal-pill">
+      <div class="goal-dot"></div>
+      <div>
+        <div class="goal-text">Ad hoc retrospective</div>
+        <div class="goal-sub">CW Logs Insights query language</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div style="display:flex;align-items:center;gap:6px;">
+      <svg width="28" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#F06449" stroke-width="2"/><polygon points="20,2 28,5 20,8" fill="#F06449"/></svg>
+      <span>push / trigger</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <svg width="28" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#185FA5" stroke-width="1.5"/><polygon points="20,2 28,5 20,8" fill="#185FA5"/></svg>
+      <span>data flow</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <svg width="28" height="10"><line x1="0" y1="5" x2="20" y2="5" stroke="#be2828" stroke-width="1.5" stroke-dasharray="4 3"/><polygon points="20,2 28,5 20,8" fill="#be2828"/></svg>
+      <span>alarm path</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
